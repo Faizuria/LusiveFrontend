@@ -1318,9 +1318,49 @@
 
         // Initialize on page load
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initStripe);
+            // Test backend connection on page load
+            async function testBackendConnection() {
+                const backendUrl = window.BACKEND_API_URL || 'https://lusivebackend.onrender.com';
+                try {
+                    const healthCheck = await fetch(`${backendUrl}/api/health`, {
+                        method: 'GET',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    if (healthCheck.ok) {
+                        console.log('✅ Backend connection successful:', backendUrl);
+                    } else {
+                        console.warn('⚠️ Backend health check failed:', healthCheck.status);
+                    }
+                } catch (error) {
+                    console.error('❌ Backend connection failed:', error.message);
+                    console.error('Backend URL:', backendUrl);
+                }
+            }
+            
+            document.addEventListener('DOMContentLoaded', () => {
+                initStripe();
+                testBackendConnection();
+            });
         } else {
             initStripe();
+            // Test backend connection if page already loaded
+            (async () => {
+                const backendUrl = window.BACKEND_API_URL || 'https://lusivebackend.onrender.com';
+                try {
+                    const healthCheck = await fetch(`${backendUrl}/api/health`, {
+                        method: 'GET',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    if (healthCheck.ok) {
+                        console.log('✅ Backend connection successful:', backendUrl);
+                    } else {
+                        console.warn('⚠️ Backend health check failed:', healthCheck.status);
+                    }
+                } catch (error) {
+                    console.error('❌ Backend connection failed:', error.message);
+                    console.error('Backend URL:', backendUrl);
+                }
+            })();
         }
 
         // Product selection from URL parameters
@@ -1434,11 +1474,13 @@
 
                 try {
                     // Determine API base URL
-                    const BACKEND_URL = window.BACKEND_API_URL || ''; // Set this in your HTML or via config
+                    const BACKEND_URL = window.BACKEND_API_URL || 'https://lusivebackend.onrender.com'; // Fallback to your backend URL
                     const isLocal = window.location.hostname === 'localhost' || 
                                    window.location.hostname === '127.0.0.1' || 
                                    window.location.protocol === 'file:';
-                    const apiBaseUrl = BACKEND_URL || (isLocal ? 'http://localhost:3000' : '');
+                    const apiBaseUrl = BACKEND_URL || (isLocal ? 'http://localhost:3000' : 'https://lusivebackend.onrender.com');
+                    
+                    console.log('Discount API Base URL:', apiBaseUrl);
 
                     // Validate discount code with Stripe
                     const response = await fetch(`${apiBaseUrl}/api/validate-discount`, {
@@ -1601,11 +1643,14 @@
                 // Determine API base URL
                 // For production, set this to your backend URL: 'https://your-backend-url.com'
                 // For local development, it will use localhost:3000
-                const BACKEND_URL = window.BACKEND_API_URL || ''; // Set this in your HTML or via config
+                const BACKEND_URL = window.BACKEND_API_URL || 'https://lusivebackend.onrender.com'; // Fallback to your backend URL
                 const isLocal = window.location.hostname === 'localhost' || 
                                window.location.hostname === '127.0.0.1' || 
                                window.location.protocol === 'file:';
-                const apiBaseUrl = BACKEND_URL || (isLocal ? 'http://localhost:3000' : '');
+                const apiBaseUrl = BACKEND_URL || (isLocal ? 'http://localhost:3000' : 'https://lusivebackend.onrender.com');
+                
+                console.log('API Base URL:', apiBaseUrl);
+                console.log('Backend API URL from config:', window.BACKEND_API_URL);
 
                 // Ensure we have all required values
                 const email = emailInput.value.trim();
@@ -1659,15 +1704,28 @@
                 };
                 
                 // Create payment intent
+                console.log('Sending request to:', `${apiBaseUrl}/api/create-payment-intent`);
+                console.log('Request body:', requestBody);
+                
                 const response = await fetch(`${apiBaseUrl}/api/create-payment-intent`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(requestBody)
+                }).catch(error => {
+                    console.error('Fetch error:', error);
+                    throw new Error(`Network error: ${error.message}. Please check your backend URL: ${apiBaseUrl || 'Not set'}`);
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ error: 'Failed to create payment intent' }));
-                    throw new Error(errorData.error || 'Failed to create payment intent');
+                    const errorText = await response.text();
+                    console.error('Response error:', response.status, errorText);
+                    let errorData;
+                    try {
+                        errorData = JSON.parse(errorText);
+                    } catch (e) {
+                        errorData = { error: errorText || 'Failed to create payment intent' };
+                    }
+                    throw new Error(errorData.error || `Server error: ${response.status}`);
                 }
 
                 const { clientSecret, error } = await response.json();
