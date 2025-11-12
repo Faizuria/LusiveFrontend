@@ -1,12 +1,12 @@
 // Frontend Configuration
-// Update this file with your backend API URL for production
+// Backend API URL - Update this if your backend URL changes
 
-// For production, set this to your backend URL
-// Example: 'https://your-backend-api.railway.app'
-// Example: 'https://api.yourdomain.com'
-// Example: 'https://your-backend.onrender.com'
-window.BACKEND_API_URL = ''; // Leave empty for auto-detection, or set your backend URL here
+// Production backend URL
+window.BACKEND_API_URL = 'https://lusivebackend.onrender.com';
 
 // If you want to set it per page, you can also add this in your HTML:
 // <script>window.BACKEND_API_URL = 'https://your-backend-url.com';</script>
+
+
+
 
