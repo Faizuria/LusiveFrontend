@@ -1,0 +1,515 @@
+<!-- Custom Payment Modal -->
+<div x-data="{ 
+    isOpen: false,
+    init() {
+        // Listen for open-payment event globally as fallback
+        const self = this;
+        const openHandler = function(e) {
+            console.log('Payment modal event received:', e.detail);
+            self.isOpen = true;
+            self.selectedPlan = e.detail.plan;
+            self.selectedPrice = e.detail.price;
+            self.paymentError = '';
+            self.showSuccess = false;
+            self.cardNumber = '';
+            self.expiryDate = '';
+            self.cvv = '';
+            self.cardName = '';
+            self.email = '';
+            self.discountCode = '';
+            self.discountApplied = false;
+            self.discountAmount = 0;
+            self.calculateFinalAmount();
+            self.$nextTick(() => { self.initStripe(); });
+            
+            // Force display update
+            setTimeout(() => {
+                const modalEl = document.querySelector('#payment-modal-container > div');
+                if (modalEl) {
+                    console.log('Forcing modal display');
+                    modalEl.style.display = 'block';
+                    modalEl.style.visibility = 'visible';
+                    modalEl.style.opacity = '1';
+                    modalEl.style.zIndex = '10000';
+                    modalEl.removeAttribute('x-cloak');
+                }
+            }, 50);
+        };
+        window.addEventListener('open-payment', openHandler);
+        
+        // Also expose a global function
+        window.openPaymentModalDirect = function(plan, price) {
+            openHandler({ detail: { plan: plan, price: price } });
+        };
+    }, 
+    selectedPlan: '', 
+    selectedPrice: '',
+    cardNumber: '',
+    expiryDate: '',
+    cvv: '',
+    cardName: '',
+    email: '',
+    isLoading: false,
+    paymentError: '',
+    showSuccess: false,
+    stripe: null,
+    discountCode: '',
+    discountApplied: false,
+    discountAmount: 0,
+    originalAmount: 0,
+    finalAmount: 0,
+    async applyDiscount() {
+        if (!this.discountCode || this.discountCode.trim() === '') {
+            this.paymentError = 'Please enter a discount code';
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/validate-discount', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    code: this.discountCode.trim().toUpperCase(),
+                    plan: this.selectedPlan
+                }),
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Invalid discount code' }));
+                this.paymentError = errorData.error || 'Invalid discount code';
+                this.discountApplied = false;
+                this.discountAmount = 0;
+                this.calculateFinalAmount();
+                return;
+            }
+            
+            const { valid, discount, discountType } = await response.json();
+            
+            if (valid && discount) {
+                this.discountApplied = true;
+                this.paymentError = '';
+                
+                // Calculate discount
+                const amountMap = {
+                    'Week': 1000,
+                    'Month': 1500,
+                    'Lifetime': 2500
+                };
+                this.originalAmount = amountMap[this.selectedPlan] || 1000;
+                
+                if (discountType === 'percentage') {
+                    this.discountAmount = Math.round(this.originalAmount * (discount / 100));
+                } else {
+                    this.discountAmount = discount * 100; // Convert to cents
+                }
+                
+                this.calculateFinalAmount();
+            } else {
+                this.paymentError = 'Invalid or expired discount code';
+                this.discountApplied = false;
+                this.discountAmount = 0;
+                this.calculateFinalAmount();
+            }
+        } catch (error) {
+            this.paymentError = 'Failed to validate discount code. Please try again.';
+            this.discountApplied = false;
+            this.discountAmount = 0;
+            this.calculateFinalAmount();
+            console.error('Discount validation error:', error);
+        }
+    },
+    calculateFinalAmount() {
+        const amountMap = {
+            'Week': 1000,
+            'Month': 1500,
+            'Lifetime': 2500
+        };
+        this.originalAmount = amountMap[this.selectedPlan] || 1000;
+        this.finalAmount = Math.max(0, this.originalAmount - this.discountAmount);
+    },
+    initStripe() {
+        if (typeof Stripe === 'undefined') {
+            console.error('Stripe.js not loaded');
+            return;
+        }
+        this.stripe = Stripe('pk_live_51RkhnPC5ZigTpayqoZvP3DlV9FzSVB60jKdmpTzf8LIDnNSvJD52A7pdMrODz0DP9E0rqwdg8qlTLE3hwkSL9ef300YKLf9AVv');
+    },
+    async processPayment() {
+        this.paymentError = '';
+        this.isLoading = true;
+        
+        try {
+            if (!this.stripe) {
+                this.initStripe();
+            }
+            
+            // Use final amount (with discount if applied)
+            this.calculateFinalAmount();
+            const amount = this.finalAmount;
+            
+            if (amount <= 0) {
+                this.paymentError = 'Invalid amount. Please check your discount code.';
+                this.isLoading = false;
+                return;
+            }
+            
+            if (!this.email || !this.cardName || !this.cardNumber || !this.expiryDate || !this.cvv) {
+                this.paymentError = 'Please fill in all fields';
+                this.isLoading = false;
+                return;
+            }
+            
+            const expiryParts = this.expiryDate.split(' / ');
+            if (expiryParts.length !== 2 || expiryParts[0].length !== 2 || expiryParts[1].length !== 2) {
+                this.paymentError = 'Please enter a valid expiry date (MM / YY)';
+                this.isLoading = false;
+                return;
+            }
+            
+            const response = await fetch('/api/create-payment-intent', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        amount: amount,
+                        currency: 'eur',
+                        email: this.email,
+                        plan: this.selectedPlan,
+                        discountCode: this.discountApplied ? this.discountCode : null
+                    }),
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ error: 'Failed to create payment intent' }));
+                throw new Error(errorData.error || 'Failed to create payment intent');
+            }
+            
+            const { clientSecret, error } = await response.json();
+            
+            if (error) {
+                this.paymentError = error;
+                this.isLoading = false;
+                return;
+            }
+            
+            const { error: confirmError, paymentIntent } = await this.stripe.confirmCardPayment(clientSecret, {
+                payment_method: {
+                    card: {
+                        number: this.cardNumber.replace(/\s/g, ''),
+                                    exp_month: parseInt(expiryParts[0].trim()),
+                                    exp_year: 2000 + parseInt(expiryParts[1].trim()),
+                        cvc: this.cvv,
+                    },
+                    billing_details: {
+                        name: this.cardName,
+                        email: this.email,
+                    },
+                },
+            });
+            
+            if (confirmError) {
+                this.paymentError = confirmError.message;
+                this.isLoading = false;
+                return;
+            }
+            
+            if (paymentIntent.status === 'succeeded') {
+                this.showSuccess = true;
+                this.isLoading = false;
+                
+                fetch('/api/payment-success', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                                paymentIntentId: paymentIntent.id,
+                                email: this.email,
+                                plan: this.selectedPlan,
+                                amount: amount,
+                                discountCode: this.discountApplied ? this.discountCode : null,
+                                discountAmount: this.discountAmount
+                            }),
+                }).catch(err => console.error('Failed to confirm payment on server:', err));
+            }
+            
+        } catch (error) {
+            this.paymentError = error.message || 'An error occurred. Please try again.';
+            this.isLoading = false;
+            console.error('Payment error:', error);
+        }
+    }
+}" 
+x-on:open-payment.window="isOpen = true; selectedPlan = $event.detail.plan; selectedPrice = $event.detail.price; paymentError = ''; showSuccess = false; cardNumber = ''; expiryDate = ''; cvv = ''; cardName = ''; email = ''; discountCode = ''; discountApplied = false; discountAmount = 0; calculateFinalAmount(); $nextTick(() => { initStripe(); })"
+x-show="isOpen" 
+class="ssk2i tmgea yslda"
+style="z-index: 10000; display: none;"
+x-bind:style="isOpen ? 'z-index: 10000; backdrop-filter: blur(8px); display: block !important; visibility: visible !important; opacity: 1 !important;' : 'z-index: 10000; display: none !important; visibility: hidden !important; opacity: 0 !important; backdrop-filter: none;'">
+    <!-- Backdrop -->
+    <div x-cloak 
+    x-show="isOpen" 
+    x-on:click="isOpen = false" 
+    x-transition:enter="osdmy votk0 shr76 sd225" 
+    x-transition:enter-start="wsgfr" 
+    x-transition:enter-end="f13xj" 
+    x-transition:leave="osdmy pke9l rc1o9 sd225" 
+    x-transition:leave-start="f13xj" 
+    x-transition:leave-end="wsgfr" 
+    class="ssk2i tmgea f3ley" style="background: linear-gradient(135deg, rgba(0, 0, 0, 0.85) 0%, rgba(5, 10, 20, 0.9) 100%); backdrop-filter: blur(8px);"></div>
+    
+    <!-- Modal Container -->
+    <div x-cloak 
+    x-show="isOpen && !showSuccess" 
+    x-on:click.stop
+    x-transition:enter="osdmy votk0 shr76 sd225" 
+    x-transition:enter-start="wsgfr gh29p k06o7 lxlur" 
+    x-transition:enter-end="f13xj r33eu uq3ev" 
+        x-transition:leave="osdmy pke9l rc1o9 sd225" 
+    x-transition:leave-start="f13xj r33eu uq3ev" 
+    x-transition:leave-end="wsgfr gh29p k06o7 lxlur" 
+    class="mzo3c m8lr6 mp55k y83lo" style="position: fixed; inset: 0; padding: 0.5rem; overflow-y: auto;">
+        <div class="vqd6h" style="background: linear-gradient(145deg, rgba(15, 20, 40, 0.98) 0%, rgba(10, 15, 30, 0.98) 50%, rgba(8, 12, 25, 0.98) 100%); border: 2px solid rgba(0, 133, 255, 0.4); border-radius: 1.5rem; padding: 0; max-width: 900px; width: 100%; box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 40px rgba(0, 133, 255, 0.2); overflow: hidden; position: relative; margin: auto; transform: perspective(1000px) rotateX(0deg); transition: transform 0.3s ease;">
+            <!-- Decorative Top Bar -->
+            <div style="height: 5px; background: linear-gradient(90deg, #0085ff 0%, #00a8ff 25%, #0066cc 50%, #00a8ff 75%, #0085ff 100%); width: 100%; box-shadow: 0 2px 10px rgba(0, 133, 255, 0.5);"></div>
+            
+            <!-- Close Button -->
+            <button type="button" 
+            x-on:click="isOpen = false" 
+            class="x4u2t pp9zk tlvqo"
+            style="position: absolute; top: 1.5rem; right: 1.5rem; z-index: 10; width: 2.5rem; height: 2.5rem; border-radius: 50%; background: linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.1) 100%); border: 1px solid rgba(255, 255, 255, 0.25); color: #ffffff; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);"
+            onmouseover="this.style.background='linear-gradient(135deg, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0.15) 100%)'; this.style.transform='rotate(90deg) scale(1.1)'; this.style.boxShadow='0 6px 20px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)'"
+            onmouseout="this.style.background='linear-gradient(135deg, rgba(255, 255, 255, 0.15) 0%, rgba(255, 255, 255, 0.1) 100%)'; this.style.transform='rotate(0deg) scale(1)'; this.style.boxShadow='0 4px 15px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2)'">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+            
+            <div class="mzo3c" style="gap: 0; flex-direction: row;" id="payment-modal-content">
+                <!-- Left Side - Order Overview -->
+                <div class="vqd6h" style="background: linear-gradient(135deg, rgba(0, 133, 255, 0.2) 0%, rgba(0, 102, 204, 0.15) 50%, rgba(0, 80, 160, 0.1) 100%); padding: 3rem 2.5rem; border-right: 1px solid rgba(255, 255, 255, 0.15); min-width: 320px; box-shadow: inset 0 0 30px rgba(0, 133, 255, 0.1), 2px 0 10px rgba(0, 0, 0, 0.2);" id="payment-order-summary">
+                    <div class="mzo3c bpcfv" style="gap: 2rem;">
+                        <div>
+                            <h2 class="r75jb wnri9 bw83h" style="font-size: 1.75rem; margin-bottom: 0.5rem; color: #ffffff; text-shadow: 0 2px 10px rgba(0, 133, 255, 0.3);">Order Overview</h2>
+                        </div>
+                        
+                        <!-- Order Details -->
+                        <div class="vqd6h" style="background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.05) 100%); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 1rem; padding: 1.5rem; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px);">
+                            <!-- Item -->
+                            <div class="mzo3c bpcfv" style="gap: 1rem; margin-bottom: 1rem;">
+                                <p class="wp1th" style="color: #e5e7eb; margin: 0; font-weight: 600; font-size: 1rem;" x-text="'1x ' + selectedPlan + ' Plan'"></p>
+                            </div>
+                            
+                            <!-- Pricing Breakdown -->
+                            <div class="mzo3c bpcfv" style="gap: 0.75rem; padding-top: 1rem; border-top: 1px solid rgba(255, 255, 255, 0.1);">
+                                <div class="mzo3c y12hf m8lr6">
+                                    <span class="wp1th xgq4o" style="color: #9ca3af;">Subtotal:</span>
+                                    <span class="wp1th" style="color: #e5e7eb;" x-text="selectedPrice"></span>
+                                </div>
+                                <div x-show="discountApplied" x-cloak class="mzo3c y12hf m8lr6">
+                                    <span class="wp1th xgq4o" style="color: #9ca3af;" x-text="'Coupon ' + discountCode + ':'"></span>
+                                    <span class="wp1th" style="color: #10b981;" x-text="'-€' + (discountAmount / 100).toFixed(2)"></span>
+                                </div>
+                                <div class="mzo3c y12hf m8lr6" style="padding-top: 0.75rem; border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 0.5rem;">
+                                    <span class="rahi2 wnri9" style="color: #ffffff;">Total</span>
+                                    <span class="r75jb wnri9 bw83h" style="font-size: 1.75rem; color: #ffffff; text-shadow: 0 2px 15px rgba(0, 133, 255, 0.4);" x-text="discountApplied ? ('€' + (finalAmount / 100).toFixed(2)) : selectedPrice"></span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                    </div>
+                </div>
+                
+                <!-- Right Side - Payment Form -->
+                <div class="vqd6h" style="padding: 3rem 2.5rem; flex: 1; background: linear-gradient(180deg, rgba(20, 25, 45, 0.5) 0%, rgba(15, 20, 35, 0.5) 100%);" id="payment-form-section">
+                    <div class="mzo3c bpcfv" style="gap: 2rem;">
+                        <div>
+                            <h2 class="rahi2 wnri9 bw83h" style="font-size: 1.75rem; margin-bottom: 0.5rem; color: #ffffff; text-shadow: 0 2px 10px rgba(0, 133, 255, 0.3);">Payment Details</h2>
+                        </div>
+                        
+                        <form x-on:submit.prevent="processPayment()" class="mzo3c bpcfv" style="gap: 1.5rem;">
+                            <!-- Discount Code -->
+                            <div class="mzo3c bpcfv" style="gap: 0.5rem;">
+                                <div class="mzo3c" style="gap: 0.5rem;">
+                                    <input type="text" x-model="discountCode" placeholder="Enter coupon code" class="t4er6" 
+                                    style="flex: 1; padding: 1rem; background-color: rgba(255, 255, 255, 0.05); border: 1.5px solid rgba(255, 255, 255, 0.2); border-radius: 0.75rem; color: #ffffff; font-size: 0.9375rem; outline: none; transition: all 0.2s; text-transform: uppercase;"
+                                    onfocus="this.style.borderColor='rgba(0, 133, 255, 0.6)'; this.style.backgroundColor='rgba(255, 255, 255, 0.08)'; this.style.boxShadow='0 0 0 3px rgba(0, 133, 255, 0.1)'"
+                                    onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'; this.style.backgroundColor='rgba(255, 255, 255, 0.05)'; this.style.boxShadow='none'"
+                                    x-on:input="discountCode = discountCode.toUpperCase()">
+                                    <button type="button" x-on:click="applyDiscount()" 
+                                    class="wp1th nfeaw"
+                                    style="padding: 1rem 1.5rem; background: linear-gradient(135deg, #0085ff 0%, #00a8ff 50%, #0066cc 100%); border: none; border-radius: 0.75rem; color: #ffffff; cursor: pointer; white-space: nowrap; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(0, 133, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);"
+                                    onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(0, 133, 255, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3)'"
+                                    onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(0, 133, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2)'">
+                                        Apply
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Email -->
+                            <div class="mzo3c bpcfv" style="gap: 0.5rem;">
+                                <label class="wp1th nfeaw" style="color: #e5e7eb;">Email address</label>
+                                <input type="email" x-model="email" required placeholder="your@email.com" class="t4er6" 
+                                style="width: 100%; padding: 1rem; background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.05) 100%); border: 1.5px solid rgba(255, 255, 255, 0.2); border-radius: 0.75rem; color: #ffffff; font-size: 0.9375rem; outline: none; transition: all 0.3s ease; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);"
+                                onfocus="this.style.borderColor='rgba(0, 133, 255, 0.8)'; this.style.backgroundColor='rgba(255, 255, 255, 0.12)'; this.style.boxShadow='0 0 0 4px rgba(0, 133, 255, 0.2), 0 4px 20px rgba(0, 133, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2)'; this.style.transform='translateY(-1px)'"
+                                onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'; this.style.backgroundColor='rgba(255, 255, 255, 0.05)'; this.style.boxShadow='0 2px 10px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)'; this.style.transform='translateY(0)'"
+                            </div>
+
+                            <!-- Card Name -->
+                            <div class="mzo3c bpcfv" style="gap: 0.5rem;">
+                                <label class="wp1th nfeaw" style="color: #e5e7eb;">Cardholder name</label>
+                                <input type="text" x-model="cardName" required placeholder="John Doe" class="t4er6" 
+                                style="width: 100%; padding: 1rem; background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.05) 100%); border: 1.5px solid rgba(255, 255, 255, 0.2); border-radius: 0.75rem; color: #ffffff; font-size: 0.9375rem; outline: none; transition: all 0.3s ease; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);"
+                                onfocus="this.style.borderColor='rgba(0, 133, 255, 0.8)'; this.style.backgroundColor='rgba(255, 255, 255, 0.12)'; this.style.boxShadow='0 0 0 4px rgba(0, 133, 255, 0.2), 0 4px 20px rgba(0, 133, 255, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2)'; this.style.transform='translateY(-1px)'"
+                                onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'; this.style.backgroundColor='rgba(255, 255, 255, 0.05)'; this.style.boxShadow='0 2px 10px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)'; this.style.transform='translateY(0)'"
+                            </div>
+
+                            <!-- Card Number -->
+                            <div class="mzo3c bpcfv" style="gap: 0.5rem;">
+                                <label class="wp1th nfeaw" style="color: #e5e7eb;">Card number</label>
+                                <div style="position: relative;">
+                                    <input type="text" x-model="cardNumber" required maxlength="19"
+                                    x-on:input="cardNumber = cardNumber.replace(/\s/g, '').replace(/(.{4})/g, '$1 ').trim()"
+                                    placeholder="1234 1234 1234 1234" class="t4er6" 
+                                    style="width: 100%; padding: 1rem; padding-right: 5rem; background-color: rgba(255, 255, 255, 0.05); border: 1.5px solid rgba(255, 255, 255, 0.2); border-radius: 0.75rem; color: #ffffff; font-size: 0.9375rem; outline: none; transition: all 0.2s; font-family: 'Courier New', monospace; letter-spacing: 0.1em;"
+                                    onfocus="this.style.borderColor='rgba(0, 133, 255, 0.6)'; this.style.backgroundColor='rgba(255, 255, 255, 0.08)'; this.style.boxShadow='0 0 0 3px rgba(0, 133, 255, 0.1)'"
+                                    onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'; this.style.backgroundColor='rgba(255, 255, 255, 0.05)'; this.style.boxShadow='none'">
+                                    <div style="position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); display: flex; gap: 0.5rem;">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="20" viewBox="0 0 32 20" style="opacity: 0.7;">
+                                            <rect width="32" height="20" fill="#1a1f71" rx="2"/>
+                                            <path d="M12 6h8v2h-8zm0 3h6v2h-6zm-2 6h10v2H10z" fill="#fff"/>
+                                        </svg>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="20" viewBox="0 0 32 20" style="opacity: 0.7;">
+                                            <rect width="32" height="20" fill="#eb001b" rx="2"/>
+                                            <circle cx="11" cy="10" r="6" fill="#fff"/>
+                                            <circle cx="21" cy="10" r="6" fill="#f79e1b"/>
+                                        </svg>
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="20" viewBox="0 0 32 20" style="opacity: 0.7;">
+                                            <rect width="32" height="20" fill="#006fcf" rx="2"/>
+                                            <path d="M16 5l-3 9h6l-3-9z" fill="#fff"/>
+                                        </svg>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Expiry and CVV -->
+                            <div class="mzo3c" style="gap: 1rem;">
+                                <div class="mzo3c bpcfv" style="gap: 0.5rem; flex: 1;">
+                                    <label class="wp1th nfeaw" style="color: #e5e7eb;">Expiry date</label>
+                                    <input type="text" x-model="expiryDate" required maxlength="5"
+                                    x-on:input="let val = expiryDate.replace(/\D/g, ''); if (val.length >= 2) { expiryDate = val.substring(0, 2) + ' / ' + val.substring(2, 4); } else { expiryDate = val; }"
+                                    placeholder="MM / YY" class="t4er6" 
+                                    style="width: 100%; padding: 1rem; background-color: rgba(255, 255, 255, 0.05); border: 1.5px solid rgba(255, 255, 255, 0.2); border-radius: 0.75rem; color: #ffffff; font-size: 0.9375rem; outline: none; transition: all 0.2s; font-family: 'Courier New', monospace; text-align: center; maxlength: 7;"
+                                    onfocus="this.style.borderColor='rgba(0, 133, 255, 0.6)'; this.style.backgroundColor='rgba(255, 255, 255, 0.08)'; this.style.boxShadow='0 0 0 3px rgba(0, 133, 255, 0.1)'"
+                                    onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'; this.style.backgroundColor='rgba(255, 255, 255, 0.05)'; this.style.boxShadow='none'">
+                                </div>
+                                <div class="mzo3c bpcfv" style="gap: 0.5rem; flex: 1;">
+                                    <label class="wp1th nfeaw" style="color: #e5e7eb;">Security code</label>
+                                    <div style="position: relative;">
+                                        <input type="text" x-model="cvv" required maxlength="4"
+                                        x-on:input="cvv = cvv.replace(/\D/g, '')"
+                                        placeholder="CVC" class="t4er6" 
+                                        style="width: 100%; padding: 1rem; padding-right: 2.5rem; background-color: rgba(255, 255, 255, 0.05); border: 1.5px solid rgba(255, 255, 255, 0.2); border-radius: 0.75rem; color: #ffffff; font-size: 0.9375rem; outline: none; transition: all 0.2s; font-family: 'Courier New', monospace; text-align: center;"
+                                        onfocus="this.style.borderColor='rgba(0, 133, 255, 0.6)'; this.style.backgroundColor='rgba(255, 255, 255, 0.08)'; this.style.boxShadow='0 0 0 3px rgba(0, 133, 255, 0.1)'"
+                                        onblur="this.style.borderColor='rgba(255, 255, 255, 0.2)'; this.style.backgroundColor='rgba(255, 255, 255, 0.05)'; this.style.boxShadow='none'">
+                                        <div style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%);">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="16" viewBox="0 0 24 16" style="opacity: 0.5;">
+                                                <rect width="24" height="16" fill="#1a1f71" rx="2"/>
+                                                <text x="12" y="11" font-family="monospace" font-size="8" fill="#fff" text-anchor="middle">123</text>
+                                            </svg>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Terms and Conditions -->
+                            <div class="mzo3c m8lr6" style="gap: 0.75rem;">
+                                <input type="checkbox" id="terms-checkbox" required
+                                style="width: 18px; height: 18px; cursor: pointer; accent-color: #0085ff;">
+                                <label for="terms-checkbox" class="wp1th" style="color: #9ca3af; cursor: pointer; line-height: 1.5;">
+                                    Agree to our <a href="#" style="color: #0085ff; text-decoration: underline;">privacy policy</a> and <a href="#" style="color: #0085ff; text-decoration: underline;">terms and conditions</a>
+                                </label>
+                            </div>
+
+                            <!-- Error Message -->
+                            <div x-show="paymentError && paymentError.trim() !== ''" x-cloak class="vqd6h" style="padding: 1rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 0.75rem;">
+                                <p class="wp1th" style="color: #ef4444; margin: 0;" x-text="paymentError"></p>
+                            </div>
+
+                            <!-- Submit Button -->
+                            <button type="submit" :disabled="isLoading"
+                            class="t4er6 mzo3c m8lr6 mp55k n9lx6 hk9s5 itrig g5zn7 z1tyq nfeaw lb0hd bvbk0 s9srq ey534 j776z nk10m c5nfk rg8zz x2yse"
+                            style="width: 100%; padding: 1.125rem; margin-top: 0.5rem; background: linear-gradient(135deg, #0085ff 0%, #00a8ff 50%, #0066cc 100%); border: none; box-shadow: 0 8px 25px rgba(0, 133, 255, 0.5), 0 4px 10px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2); border-radius: 0.75rem; position: relative; overflow: hidden;"
+                            :style="isLoading ? 'opacity: 0.7; cursor: not-allowed;' : ''"
+                            onmouseover="if(!isLoading) { this.style.transform='translateY(-3px) scale(1.02)'; this.style.boxShadow='0 12px 35px rgba(0, 133, 255, 0.6), 0 6px 15px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3)' }"
+                            onmouseout="if(!isLoading) { this.style.transform='translateY(0) scale(1)'; this.style.boxShadow='0 8px 25px rgba(0, 133, 255, 0.5), 0 4px 10px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2)' }"
+                            onmousedown="if(!isLoading) { this.style.transform='translateY(-1px) scale(0.98)' }"
+                            onmouseup="if(!isLoading) { this.style.transform='translateY(-3px) scale(1.02)' }">
+                                <span x-show="!isLoading" style="font-size: 1rem; font-weight: 500;">
+                                    Confirm
+                                </span>
+                                <span x-show="isLoading" class="mzo3c m8lr6" style="gap: 0.5rem;">
+                                    <svg class="animate-spin" style="width: 20px; height: 20px;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Processing...
+                                </span>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Message Modal -->
+    <div x-cloak 
+    x-show="showSuccess" 
+    x-transition:enter="osdmy votk0 shr76 sd225" 
+    x-transition:enter-start="wsgfr gh29p k06o7 lxlur" 
+    x-transition:enter-end="f13xj r33eu uq3ev" 
+    class="mzo3c m8lr6 mp55k y83lo" style="position: fixed; inset: 0; padding: 0.5rem; overflow-y: auto; z-index: 101;">
+        <div class="vqd6h" style="background: linear-gradient(145deg, rgba(10, 14, 31, 0.98) 0%, rgba(13, 22, 41, 0.98) 100%); border: 2px solid rgba(16, 185, 129, 0.3); border-radius: 1rem; padding: 3rem; max-width: 600px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); text-align: center;">
+            <div class="mzo3c bpcfv m8lr6" style="gap: 2rem;">
+                <!-- Success Icon -->
+                <div style="width: 80px; height: 80px; border-radius: 50%; background: linear-gradient(135deg, #10b981 0%, #059669 100%); display: flex; align-items: center; justify-content: center; margin: 0 auto;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="color: #ffffff;">
+                        <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg>
+                </div>
+                
+                <!-- Success Message -->
+                <div>
+                    <h2 class="r75jb wnri9 bw83h" style="font-size: 2rem; margin-bottom: 1rem; color: #ffffff;">🎉 Payment Successful!</h2>
+                    <p class="wp1th" style="color: #9ca3af; font-size: 1.125rem; margin-bottom: 2rem;">
+                        Congratulations! Your payment has been processed successfully.
+                    </p>
+                    <p class="wp1th" style="color: #e5e7eb; font-size: 1rem; margin-bottom: 2rem;">
+                        Join our Discord server to get access to your purchase. Make sure to show proof of payment!
+                    </p>
+                </div>
+                
+                <!-- Discord Button -->
+                <a href="https://discord.gg/lusiveofficial" target="_blank" 
+                   class="t4er6 mzo3c m8lr6 mp55k n9lx6 hk9s5 itrig g5zn7 z1tyq nfeaw bvbk0 s9srq ey534 j776z nk10m c5nfk rg8zz x2yse"
+                   style="background: linear-gradient(135deg, #5865F2 0%, #4752C4 100%); border: none; box-shadow: 0 4px 14px rgba(88, 101, 242, 0.4); padding: 1.125rem 2rem; text-decoration: none;"
+                   onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(88, 101, 242, 0.5)'"
+                   onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 14px rgba(88, 101, 242, 0.4)'">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.1.1 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.1 16.1 0 0 0-4.8 0c-.14-.34-.35-.76-.54-1.09c-.01-.02-.04-.03-.07-.03c-1.5.26-2.93.71-4.27 1.33c-.01 0-.02.01-.03.02c-2.72 4.07-3.47 8.03-3.1 11.95c0 .02.01.04.03.05c1.8 1.32 3.53 2.12 5.24 2.65c.03.01.06 0 .07-.02c.4-.55.76-1.13 1.07-1.74c.02-.04 0-.08-.04-.09c-.57-.22-1.11-.48-1.64-.78c-.04-.02-.04-.08-.01-.11c.11-.08.22-.17.33-.25c.02-.02.05-.02.07-.01c3.44 1.57 7.15 1.57 10.55 0c.02-.01.05-.01.07.01c.11.09.22.17.33.26c.04.03.04.09-.01.11c-.52.31-1.07.56-1.64.78c-.04.01-.05.06-.04.09c.32.61.68 1.19 1.07 1.74c.03.01.06.02.09.01c1.72-.53 3.45-1.33 5.25-2.65c.02-.01.03-.03.03-.05c.44-4.53-.73-8.46-3.1-11.95c-.01-.01-.02-.02-.04-.02M8.52 14.91c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12c0 1.17-.84 2.12-1.89 2.12m6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12c0 1.17-.83 2.12-1.89 2.12"/>
+                    </svg>
+                    <span>Join Discord to Get Access</span>
+                </a>
+                
+                <!-- Close Button -->
+                <button type="button" 
+                x-on:click="isOpen = false; showSuccess = false" 
+                class="wp1th"
+                style="color: #9ca3af; background: transparent; border: none; cursor: pointer; margin-top: 1rem; text-decoration: underline;">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://js.stripe.com/v3/"></script>
+
