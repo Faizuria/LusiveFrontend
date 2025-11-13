@@ -1713,22 +1713,65 @@
             if (selectedProduct) {
                 document.getElementById('itemName').textContent = selectedProduct.plan + ' Plan';
                 
-                // Always use the exact plan price - no discounts applied to payment
-                const planPrice = selectedProduct.price;
+                // Get the original plan price
+                const originalPrice = selectedProduct.price;
+                const originalAmount = productPrices[selectedProduct.plan] ? productPrices[selectedProduct.plan].amount : Math.round(originalPrice * 100);
                 
-                document.getElementById('itemPrice').textContent = '£' + planPrice.toFixed(2);
-                document.getElementById('subtotal').textContent = '£' + planPrice.toFixed(2);
+                // Calculate discounted price if discount is applied
+                let finalPrice = originalPrice;
+                let finalAmount = originalAmount;
+                let discountDisplay = '';
                 
-                // Update total display - always show plan price
-                document.getElementById('total').textContent = '£' + planPrice.toFixed(2);
-                
-                // Update selectedProduct amount for payment processing - use exact plan amount
-                // Get the original amount from productPrices mapping
-                if (productPrices[selectedProduct.plan]) {
-                    selectedProduct.amount = productPrices[selectedProduct.plan].amount;
+                if (appliedDiscount && appliedDiscount.amount > 0) {
+                    // Calculate discounted amount
+                    const discountedAmount = originalAmount - appliedDiscount.amount;
+                    finalAmount = Math.max(0, discountedAmount); // Ensure it doesn't go negative
+                    finalPrice = finalAmount / 100; // Convert pence to pounds
+                    
+                    // Update selectedProduct with discounted amount for payment
+                    selectedProduct.amount = finalAmount;
+                    selectedProduct.originalAmount = originalAmount; // Keep original for reference
+                    
+                    // Create discount display text
+                    if (appliedDiscount.discountType === 'percentage') {
+                        discountDisplay = ` (${(appliedDiscount.percentage * 100).toFixed(0)}% off)`;
+                    } else {
+                        discountDisplay = ` (£${(appliedDiscount.amount / 100).toFixed(2)} off)`;
+                    }
                 } else {
-                    // Fallback: calculate from price
-                    selectedProduct.amount = Math.round(planPrice * 100);
+                    // No discount - use original amounts
+                    if (productPrices[selectedProduct.plan]) {
+                        selectedProduct.amount = productPrices[selectedProduct.plan].amount;
+                    } else {
+                        selectedProduct.amount = Math.round(originalPrice * 100);
+                    }
+                    delete selectedProduct.originalAmount;
+                }
+                
+                // Update display - show original price if discounted
+                if (appliedDiscount && appliedDiscount.amount > 0) {
+                    document.getElementById('itemPrice').innerHTML = 
+                        '<span style="text-decoration: line-through; color: #9ca3af; margin-right: 8px;">£' + originalPrice.toFixed(2) + '</span>' +
+                        '<span style="color: #10b981; font-weight: 700;">£' + finalPrice.toFixed(2) + '</span>' +
+                        '<span style="color: #10b981; font-size: 0.85em; margin-left: 4px;">' + discountDisplay + '</span>';
+                } else {
+                    document.getElementById('itemPrice').textContent = '£' + originalPrice.toFixed(2);
+                }
+                
+                // Update subtotal and total
+                document.getElementById('subtotal').textContent = '£' + originalPrice.toFixed(2);
+                
+                if (appliedDiscount && appliedDiscount.amount > 0) {
+                    // Show discount breakdown
+                    const discountAmountPounds = appliedDiscount.amount / 100;
+                    document.getElementById('total').innerHTML = 
+                        '<div style="text-align: right;">' +
+                        '<div style="font-size: 0.9em; color: #9ca3af; text-decoration: line-through;">£' + originalPrice.toFixed(2) + '</div>' +
+                        '<div style="color: #ef4444; font-size: 0.85em;">-£' + discountAmountPounds.toFixed(2) + ' discount</div>' +
+                        '<div style="color: #10b981; font-weight: 700; font-size: 1.1em; margin-top: 4px;">£' + finalPrice.toFixed(2) + '</div>' +
+                        '</div>';
+                } else {
+                    document.getElementById('total').textContent = '£' + originalPrice.toFixed(2);
                 }
                 
                 // Product image is already set, no need to update
@@ -1996,12 +2039,12 @@
                 
                 const plan = selectedProduct.plan;
                 
-                // Always use the exact plan amount from productPrices mapping
+                // Use the amount from selectedProduct (which includes discount if applied)
                 let amount = null;
-                if (productPrices[plan]) {
-                    amount = productPrices[plan].amount; // Use exact amount from mapping
-                } else if (selectedProduct.amount) {
-                    amount = Number(selectedProduct.amount);
+                if (selectedProduct.amount) {
+                    amount = Number(selectedProduct.amount); // This will be the discounted amount if discount is applied
+                } else if (productPrices[plan]) {
+                    amount = productPrices[plan].amount; // Fallback to original amount
                 } else if (selectedProduct.price) {
                     amount = Math.round(selectedProduct.price * 100);
                 } else {
@@ -2029,13 +2072,15 @@
                 }
 
                 // Create payment intent with validated values
-                // Always use exact plan amount - no discount codes applied
+                // Include discount code in payment intent if applied
                 const requestBody = {
                     amount: Number(amount),
                     currency: 'gbp',
                     email: String(email),
                     plan: String(plan),
-                    discountCode: null // Disable discount codes - user pays exact plan price
+                    discountCode: appliedDiscount ? appliedDiscount.code : null,
+                    promotionCodeId: appliedDiscount ? appliedDiscount.promotionCodeId : null,
+                    couponId: appliedDiscount ? appliedDiscount.couponId : null
                 };
                 
                 // Create payment intent
