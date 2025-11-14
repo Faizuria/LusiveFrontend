@@ -3008,14 +3008,22 @@
                                 <a href="https://discord.gg/lusiveofficial" target="_blank" class="eznj4 osdmy nk10m c5nfk" style="color: #e5e7eb; text-decoration: none; font-size: 0.9375rem; font-weight: 500; transition: color 0.2s; white-space: nowrap;" onmouseover="this.style.color='#ffffff'" onmouseout="this.style.color='#e5e7eb'">Discord</a>
                                 </div>
                             
-                            <!-- Dashboard Button -->
-                            <div class="mn5za aeh0e mj45m umgaj">
-                                <a href="#" onclick="event.preventDefault(); document.getElementById('dashboardModal').classList.add('show'); return false;" class="mzo3c m8lr6 n9lx6 eutt6 d6jfm wp1th z1tyq nfeaw bvbk0 s9srq ey534 j776z nk10m c5nfk rg8zz rxxwk" style="background-color: #0085ff; color: #ffffff; text-decoration: none; border: none; padding: 0.625rem 1.5rem; border-radius: 0.5rem; font-weight: 500; transition: all 0.2s; white-space: nowrap; gap: 0.5rem; cursor: pointer;" onmouseover="this.style.backgroundColor='#0066cc'; this.style.transform='translateY(-1px)'" onmouseout="this.style.backgroundColor='#0085ff'; this.style.transform='translateY(0)'">
+                            <!-- Dashboard Button / User Profile -->
+                            <div class="mn5za aeh0e mj45m umgaj" id="dashboardButtonContainer">
+                                <a href="#" id="dashboardButton" onclick="event.preventDefault(); window.handleDashboardClick(); return false;" class="mzo3c m8lr6 n9lx6 eutt6 d6jfm wp1th z1tyq nfeaw bvbk0 s9srq ey534 j776z nk10m c5nfk rg8zz rxxwk" style="background-color: #0085ff; color: #ffffff; text-decoration: none; border: none; padding: 0.625rem 1.5rem; border-radius: 0.5rem; font-weight: 500; transition: all 0.2s; white-space: nowrap; gap: 0.5rem; cursor: pointer;" onmouseover="this.style.backgroundColor='#0066cc'; this.style.transform='translateY(-1px)'" onmouseout="this.style.backgroundColor='#0085ff'; this.style.transform='translateY(0)'">
                                     <svg class="w2x9x pofkk" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" style="width: 18px; height: 18px;">
                                         <path fill="currentColor" d="M13 21q-.425 0-.712-.288T12 20t.288-.712T13 19h6V5h-6q-.425 0-.712-.288T12 4t.288-.712T13 3h6q.825 0 1.413.588T21 5v14q0 .825-.587 1.413T19 21zm-1.825-8H4q-.425 0-.712-.288T3 12t.288-.712T4 11h7.175L9.3 9.125q-.275-.275-.275-.675t.275-.7t.7-.313t.725.288L14.3 11.3q.3.3.3.7t-.3.7l-3.575 3.575q-.3.3-.712.288T9.3 16.25q-.275-.3-.262-.712t.287-.688z"/>
                                     </svg>
                                     <span style="margin: 0 0.5rem; opacity: 0.5;">|</span>
-                                    <span>Dashboard</span>
+                                    <span id="dashboardButtonText">Dashboard</span>
+                                </a>
+                            </div>
+                            
+                            <!-- User Profile (shown when logged in) -->
+                            <div class="mn5za aeh0e mj45m umgaj" id="userProfileContainer" style="display: none;">
+                                <a href="#" onclick="event.preventDefault(); window.handleDashboardClick(); return false;" class="mzo3c m8lr6 n9lx6 eutt6 d6jfm wp1th z1tyq nfeaw bvbk0 s9srq ey534 j776z nk10m c5nfk rg8zz rxxwk" style="background-color: rgba(255, 255, 255, 0.1); color: #ffffff; text-decoration: none; border: 1px solid rgba(255, 255, 255, 0.2); padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: 500; transition: all 0.2s; white-space: nowrap; gap: 0.5rem; cursor: pointer;" onmouseover="this.style.backgroundColor='rgba(255, 255, 255, 0.15)'" onmouseout="this.style.backgroundColor='rgba(255, 255, 255, 0.1)'">
+                                    <img id="navUserAvatar" src="" alt="User" style="width: 24px; height: 24px; border-radius: 50%; margin-right: 0.5rem;">
+                                    <span id="navUserName">User</span>
                                 </a>
                             </div>
                             
@@ -5549,17 +5557,36 @@
             }
         </style>
         
-        <!-- Custom Dashboard Modal Popup -->
+        <!-- Dashboard Modal -->
         <div id="dashboardModal" class="custom-modal-overlay" onclick="if(event.target === this) this.classList.remove('show');">
-            <div class="custom-modal">
-                <div class="custom-modal-icon">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+            <div class="custom-modal" style="max-width: 800px; text-align: left;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                    <h2 class="custom-modal-title" style="margin: 0;">Dashboard</h2>
+                    <button onclick="document.getElementById('dashboardModal').classList.remove('show');" style="background: none; border: none; color: #9ca3af; cursor: pointer; font-size: 1.5rem; padding: 0.5rem;">&times;</button>
                 </div>
-                <h2 class="custom-modal-title">Coming Soon</h2>
-                <p class="custom-modal-message">This will be soon live in next Update</p>
-                <button class="custom-modal-button" onclick="document.getElementById('dashboardModal').classList.remove('show');">Got It</button>
+                
+                <div id="dashboardContent">
+                    <!-- User Profile Section -->
+                    <div style="background: rgba(0, 133, 255, 0.1); border: 1px solid rgba(0, 133, 255, 0.3); border-radius: 1rem; padding: 1.5rem; margin-bottom: 2rem;">
+                        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                            <img id="userAvatar" src="" alt="User Avatar" style="width: 64px; height: 64px; border-radius: 50%; border: 2px solid rgba(0, 133, 255, 0.5);">
+                            <div>
+                                <h3 id="userName" style="color: #ffffff; margin: 0 0 0.25rem 0; font-size: 1.25rem;">Loading...</h3>
+                                <p id="userEmail" style="color: #9ca3af; margin: 0; font-size: 0.875rem;">Loading...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Purchases Section -->
+                    <div>
+                        <h3 style="color: #ffffff; margin-bottom: 1rem; font-size: 1.125rem;">Your Purchases</h3>
+                        <div id="purchasesList" style="display: flex; flex-direction: column; gap: 1rem;">
+                            <div style="color: #9ca3af; padding: 2rem; text-align: center; background: rgba(255, 255, 255, 0.05); border-radius: 0.5rem;">
+                                No purchases found
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -5698,5 +5725,225 @@
                 }, 10000); // Show again after 10 seconds
             });
         </script>
+
+        <script>
+            // Discord OAuth Configuration
+            const DISCORD_OAUTH_URL = 'https://discord.com/oauth2/authorize?client_id=1285837978509246536&response_type=code&redirect_uri=https%3A%2F%2Fwww.lusive.site%2F&scope=identify+guilds.join+email+guilds+guilds.members.read';
+            const REQUIRED_ROLE_ID = '1425485568367788145';
+
+            // User Session Management
+            const UserSession = {
+                get: function() {
+                    const session = localStorage.getItem('userSession');
+                    return session ? JSON.parse(session) : null;
+                },
+                set: function(userData) {
+                    localStorage.setItem('userSession', JSON.stringify(userData));
+                },
+                clear: function() {
+                    localStorage.removeItem('userSession');
+                },
+                isLoggedIn: function() {
+                    return this.get() !== null;
+                }
+            };
+
+            // Open Discord Login
+            window.openDiscordLogin = function() {
+                window.location.href = DISCORD_OAUTH_URL;
+            };
+
+            // Handle Dashboard Click
+            window.handleDashboardClick = function() {
+                if (UserSession.isLoggedIn()) {
+                    // Show dashboard
+                    loadDashboard();
+                    document.getElementById('dashboardModal').classList.add('show');
+                } else {
+                    // Redirect directly to Discord login
+                    window.openDiscordLogin();
+                }
+            };
+            
+            // Handle OAuth Callback
+            function handleOAuthCallback() {
+                const urlParams = new URLSearchParams(window.location.search);
+                const code = urlParams.get('code');
+                const error = urlParams.get('error');
+
+                if (error) {
+                    console.error('OAuth error:', error);
+                    // Remove error from URL
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                    return;
+                }
+
+                if (code) {
+                    // Exchange code for token (this requires backend)
+                    // For now, we'll simulate the process
+                    // In production, you'd make an API call to your backend
+                    exchangeCodeForToken(code);
+                }
+            }
+
+            // Exchange OAuth code for token and user info
+            async function exchangeCodeForToken(code) {
+                try {
+                    // NOTE: This requires a backend endpoint
+                    // For now, we'll use a placeholder that you'll need to implement
+                    // The backend should:
+                    // 1. Exchange code for access token
+                    // 2. Get user info from Discord API
+                    // 3. Check if user has the required role
+                    // 4. Return user data
+
+                    // Placeholder: You need to implement this endpoint
+                    const response = await fetch('/api/discord/callback', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ code: code })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to authenticate');
+                    }
+
+                    const userData = await response.json();
+                    
+                    // Check if user has required role
+                    if (!userData.hasRole) {
+                        alert('You do not have the required role to access this dashboard.');
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                        return;
+                    }
+
+                    // Save user session
+                    UserSession.set({
+                        id: userData.id,
+                        username: userData.username,
+                        discriminator: userData.discriminator,
+                        avatar: userData.avatar,
+                        email: userData.email,
+                        accessToken: userData.accessToken
+                    });
+
+                    // Remove code from URL
+                    window.history.replaceState({}, document.title, window.location.pathname);
+
+                    // Update UI
+                    updateUserUI();
+                    
+                    // Redirect to homepage (as requested)
+                    window.location.href = '/';
+                } catch (error) {
+                    console.error('Authentication error:', error);
+                    alert('Failed to authenticate. Please try again.');
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                }
+            }
+
+            // Update User UI in Navigation
+            function updateUserUI() {
+                const user = UserSession.get();
+                if (user) {
+                    // Hide dashboard button, show user profile
+                    document.getElementById('dashboardButtonContainer').style.display = 'none';
+                    document.getElementById('userProfileContainer').style.display = 'flex';
+                    
+                    // Update user profile
+                    const avatarUrl = user.avatar 
+                        ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+                        : `https://cdn.discordapp.com/embed/avatars/${(user.discriminator || user.id) % 5}.png`;
+                    
+                    document.getElementById('navUserAvatar').src = avatarUrl;
+                    document.getElementById('navUserName').textContent = user.username + (user.discriminator && user.discriminator !== '0' ? '#' + user.discriminator : '');
+                } else {
+                    // Show dashboard button, hide user profile
+                    document.getElementById('dashboardButtonContainer').style.display = 'flex';
+                    document.getElementById('userProfileContainer').style.display = 'none';
+                }
+            }
+
+            // Load Dashboard Data
+            function loadDashboard() {
+                const user = UserSession.get();
+                if (!user) return;
+
+                // Update user info in dashboard
+                const avatarUrl = user.avatar 
+                    ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
+                    : `https://cdn.discordapp.com/embed/avatars/${(user.discriminator || user.id) % 5}.png`;
+                
+                document.getElementById('userAvatar').src = avatarUrl;
+                document.getElementById('userName').textContent = user.username + (user.discriminator && user.discriminator !== '0' ? '#' + user.discriminator : '');
+                document.getElementById('userEmail').textContent = user.email || 'No email provided';
+
+                // Load purchases (you'll need to implement this endpoint)
+                loadPurchases(user.id);
+            }
+
+            // Load User Purchases
+            async function loadPurchases(userId) {
+                try {
+                    // NOTE: This requires a backend endpoint
+                    // Placeholder: You need to implement this endpoint
+                    const response = await fetch(`/api/user/${userId}/purchases`);
+                    
+                    if (!response.ok) {
+                        throw new Error('Failed to load purchases');
+                    }
+
+                    const purchases = await response.json();
+                    displayPurchases(purchases);
+                } catch (error) {
+                    console.error('Failed to load purchases:', error);
+                    // Show empty state
+                    document.getElementById('purchasesList').innerHTML = `
+                        <div style="color: #9ca3af; padding: 2rem; text-align: center; background: rgba(255, 255, 255, 0.05); border-radius: 0.5rem;">
+                            No purchases found
+                        </div>
+                    `;
+                }
+            }
+
+            // Display Purchases
+            function displayPurchases(purchases) {
+                const purchasesList = document.getElementById('purchasesList');
+                
+                if (!purchases || purchases.length === 0) {
+                    purchasesList.innerHTML = `
+                        <div style="color: #9ca3af; padding: 2rem; text-align: center; background: rgba(255, 255, 255, 0.05); border-radius: 0.5rem;">
+                            No purchases found
+                        </div>
+                    `;
+                    return;
+                }
+
+                purchasesList.innerHTML = purchases.map(purchase => `
+                    <div style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 0.75rem; padding: 1.25rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                            <h4 style="color: #ffffff; margin: 0; font-size: 1rem; font-weight: 600;">${purchase.plan || 'Purchase'}</h4>
+                            <span style="color: #0085ff; font-weight: 600;">${purchase.price || ''}</span>
+                        </div>
+                        <div style="color: #9ca3af; font-size: 0.875rem;">
+                            <div>Date: ${new Date(purchase.date || purchase.createdAt).toLocaleDateString()}</div>
+                            ${purchase.status ? `<div>Status: <span style="color: #10b981;">${purchase.status}</span></div>` : ''}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            // Initialize on page load
+            document.addEventListener('DOMContentLoaded', function() {
+                // Handle OAuth callback
+                handleOAuthCallback();
+                
+                // Update UI based on login status
+                updateUserUI();
+            });
+        </script>
     </body>
 </html>
+s
